@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0E1219">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Cuaderno</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{background:#0E1219;color:#E9E7E0;font-family:'IBM Plex Sans',system-ui,sans-serif;min-height:100vh;-webkit-text-size-adjust:100%;}
+#root{min-height:100vh;}
+.st-display{font-family:'Space Grotesk',system-ui,sans-serif;}
+.st-mono{font-family:'IBM Plex Mono',ui-monospace,monospace;}
+.st-input::placeholder{color:#5d6678;}
+textarea.st-input{font-family:'IBM Plex Mono',ui-monospace,monospace;}
+@keyframes st-rise{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+@keyframes st-pop{0%{transform:scale(.9);opacity:0;}60%{transform:scale(1.04);}100%{transform:scale(1);opacity:1;}}
+.st-rise{animation:st-rise .28s ease both;}
+.st-pop{animation:st-pop .32s cubic-bezier(.2,.8,.2,1) both;}
+@media(prefers-reduced-motion:reduce){.st-rise,.st-pop{animation:none;}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+const STORE_KEY = "cuaderno-v3";
+const INTERVALS = {1:1,2:3,3:7,4:16,5:35,6:90};
+const MASTERED_TIER = 6;
+const LADDER = [
+  {key:"new",label:"New"},{key:"1",label:"I"},{key:"2",label:"II"},
+  {key:"3",label:"III"},{key:"4",label:"IV"},{key:"5",label:"V"},
+  {key:"mastered",label:"Mastered"},
+];
+
+const C = {
+  ink:"#0E1219",ink2:"#141A24",surface:"#1A2230",surface2:"#212B3A",
+  line:"#2C3848",text:"#E9E7E0",muted:"#8A94A6",
+  brass:"#D9A441",steel:"#6E97C9",sage:"#86B07A",clay:"#CE6B4F",
+};
+
+// ── Language configs ──
+const LANGS = [
+  {code:"es",tts:"es",label:"Spanish",flag:"🇪🇸",articles:["el","la","los","las","un","una","unos","unas"],hint:"Latin American / Caribbean"},
+  {code:"fr",tts:"fr",label:"French",flag:"🇫🇷",articles:["le","la","les","un","une","des","l'"],hint:""},
+  {code:"de",tts:"de",label:"German",flag:"🇩🇪",articles:["der","die","das","ein","eine","den","dem","des"],hint:""},
+  {code:"it",tts:"it",label:"Italian",flag:"🇮🇹",articles:["il","lo","la","i","gli","le","un","una","uno"],hint:""},
+  {code:"pt",tts:"pt",label:"Portuguese",flag:"🇧🇷",articles:["o","a","os","as","um","uma","uns","umas"],hint:"Brazilian"},
+  {code:"ja",tts:"ja",label:"Japanese",flag:"🇯🇵",articles:[],hint:"Include romaji as alternate answers"},
+  {code:"ko",tts:"ko",label:"Korean",flag:"🇰🇷",articles:[],hint:"Include romanization as alternate answers"},
+  {code:"zh",tts:"zh",label:"Chinese (Mandarin)",flag:"🇨🇳",articles:[],hint:"Include pinyin as alternate answers"},
+  {code:"ar",tts:"ar",label:"Arabic",flag:"🇸🇦",articles:["ال"],hint:"Include transliteration as alternate answers"},
+  {code:"ru",tts:"ru",label:"Russian",flag:"🇷🇺",articles:[],hint:"Include transliteration as alternate answers"},
+  {code:"hi",tts:"hi",label:"Hindi",flag:"🇮🇳",articles:[],hint:"Include transliteration as alternate answers"},
+  {code:"nl",tts:"nl",label:"Dutch",flag:"🇳🇱",articles:["de","het","een"],hint:""},
+  {code:"sv",tts:"sv",label:"Swedish",flag:"🇸🇪",articles:["en","ett","den","det"],hint:""},
+  {code:"pl",tts:"pl",label:"Polish",flag:"🇵🇱",articles:[],hint:""},
+  {code:"tr",tts:"tr",label:"Turkish",flag:"🇹🇷",articles:[],hint:""},
+  {code:"el",tts:"el",label:"Greek",flag:"🇬🇷",articles:["ο","η","το","οι","τα"],hint:"Include transliteration"},
+  {code:"he",tts:"he",label:"Hebrew",flag:"🇮🇱",articles:["ה"],hint:"Include transliteration"},
+  {code:"th",tts:"th",label:"Thai",flag:"🇹🇭",articles:[],hint:"Include transliteration"},
+  {code:"vi",tts:"vi",label:"Vietnamese",flag:"🇻🇳",articles:[],hint:""},
+  {code:"uk",tts:"uk",label:"Ukrainian",flag:"🇺🇦",articles:[],hint:"Include transliteration"},
+];
+
+// ── SVG Icons ──
+const Icon = ({d,size=18,color=C.text,sw=2}) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">{d}</svg>
+);
+const IFlame = p=><Icon {...p} d={<path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 2.5z"/>}/>;
+const IChevR = p=><Icon {...p} d={<polyline points="9 18 15 12 9 6"/>}/>;
+const ICheck = p=><Icon {...p} d={<polyline points="20 6 9 17 4 12"/>}/>;
+const IX = p=><Icon {...p} d={<><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>}/>;
+const IPlus = p=><Icon {...p} d={<><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>}/>;
+const IArrowUp = p=><Icon {...p} d={<><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></>}/>;
+const IArrowLeft = p=><Icon {...p} d={<><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></>}/>;
+const IReset = p=><Icon {...p} d={<><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></>}/>;
+const IVol = p=><Icon {...p} d={<><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/></>}/>;
+const IBulb = p=><Icon {...p} d={<><path d="M9 18h6M10 22h4M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0018 8 6 6 0 006 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 018.91 14"/></>}/>;
+const ICopy = p=><Icon {...p} d={<><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></>}/>;
+const IUpload = p=><Icon {...p} d={<><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></>}/>;
+const IGlobe = p=><Icon {...p} d={<><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></>}/>;
+const ISettings = p=><Icon {...p} d={<><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></>}/>;
+
+// ── Helpers ──
+const todayStr = ()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;};
+const addDays = (s,n)=>{const[y,m,d]=s.split("-").map(Number);const dt=new Date(y,m-1,d);dt.setDate(dt.getDate()+n);const x=dt;return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,"0")}-${String(x.getDate()).padStart(2,"0")}`;};
+const norm = s=>(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[¿?¡!.,;:'"()]/g,"").replace(/\s+/g," ").trim();
+const shuffle = a=>{const b=[...a];for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]];}return b;};
+
+function stripArticles(s, articles) {
+  if (!articles || !articles.length) return s;
+  const pattern = new RegExp(`^(${articles.join("|")})\\s+`, "i");
+  return s.replace(pattern, "").trim();
+}
+
+function checkAnswer(card, raw, articles) {
+  const u = norm(raw);
+  if (!u) return {status:"wrong"};
+  const vars = new Set();
+  [card.es,...(card.accept||[])].forEach(v => { vars.add(norm(v)); vars.add(norm(stripArticles(v, articles))); });
+  if (!vars.has(u)) return {status:"wrong"};
+  const exact = raw.trim().toLowerCase() === card.es.toLowerCase();
+  return {status: exact ? "correct" : "close"};
+}
+
+function loadData(){try{return JSON.parse(localStorage.getItem(STORE_KEY));}catch(_){return null;}}
+function saveData(d){try{localStorage.setItem(STORE_KEY,JSON.stringify(d));}catch(_){}}
+
+function buildPrompt(lang) {
+  const lc = LANGS.find(l=>l.code===lang.code);
+  const regionHint = lc?.hint ? ` Prefer ${lc.hint} variants when applicable.` : "";
+  const artHint = (lc?.articles||[]).length ? ` For nouns include the article (${lc.articles.slice(0,4).join("/")}).` : "";
+  return `I speak ${lang.native}. I am learning ${lang.label}. Generate vocabulary flashcards about [YOUR TOPIC HERE].
+
+CRITICAL FORMAT RULES:
+- Output ONLY raw text lines, one card per line
+- Separate fields with | (pipe character)
+- Do NOT make a markdown table
+- Do NOT add headers, column titles, or dashes
+- Do NOT wrap in code blocks or backticks
+- Do NOT add any explanation before or after the lines
+- Each line has 2 to 4 fields:
+  field 1: the word in ${lang.native} (my language)
+  field 2: the word in ${lang.label} (language I'm learning)${artHint}
+  field 3 (optional): an example sentence in ${lang.label}
+  field 4 (optional): that sentence translated to ${lang.native}
+- Give me 8-12 lines${regionHint}
+- Do NOT use English unless ${lang.native} or ${lang.label} is English
+
+Your entire response should look exactly like this (but with real ${lang.native} and ${lang.label} words):
+house | la casa | Mi casa es grande. | My house is big.
+to eat | comer | Vamos a comer. | Let's go eat.
+small | pequeño
+
+Replace the example words above with actual ${lang.native} → ${lang.label} vocabulary about the topic I specified. Nothing else in your response.`;
+}
+
+function speak(text, ttsCode) {
+  try {
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${ttsCode}&client=tw-ob&q=${encodeURIComponent(text)}`;
+    const audio = new Audio(url);
+    audio.playbackRate = 0.9;
+    audio.play().catch(()=>{
+      try{const u=new SpeechSynthesisUtterance(text);u.lang=ttsCode;u.rate=0.85;
+        const v=(speechSynthesis.getVoices()||[]).find(v=>(v.lang||"").startsWith(ttsCode));
+        if(v)u.voice=v;speechSynthesis.cancel();speechSynthesis.speak(u);
+      }catch(_){}
+    });
+  }catch(_){}
+}
+
+function parseImport(text) {
+  const lines = text.split("\n").map(l=>l.trim())
+    .filter(l=>{
+      if(!l) return false;
+      // skip markdown table headers and separators
+      if(/^[\|\-\s:]+$/.test(l)) return false;
+      if(/^[#\-\*]/.test(l) && !l.includes("|")) return false;
+      // skip lines that look like column headers
+      const low = l.toLowerCase();
+      if(low.includes("native") && low.includes("target")) return false;
+      if(low.includes("english") && low.includes("example") && low.includes("|")) return false;
+      if(/^```/.test(l)) return false;
+      return true;
+    });
+  return lines.map(line => {
+    // strip leading/trailing pipes from markdown tables: | word | word | → word | word
+    let cleaned = line.replace(/^\|/, "").replace(/\|$/, "").trim();
+    const parts = cleaned.split("|").map(p=>p.trim());
+    if (parts.length < 2 || !parts[0] || !parts[1]) return null;
+    return {
+      id:`u${Date.now()}_${Math.random().toString(36).slice(2,7)}`,
+      en:parts[0], es:parts[1], accept:[], ex_es:parts[2]||"", ex_en:parts[3]||"",
+      tier:0, due:null, reps:0, lapses:0,
+    };
+  }).filter(Boolean);
+}
+
+// ── Components ──
+function Stat({label,value,accent}){
+  return(<div style={{flex:1,border:`1px solid ${C.line}`,borderRadius:10,padding:"12px 10px",background:C.surface,textAlign:"center"}}>
+    <div className="st-display" style={{fontSize:24,fontWeight:700,color:accent}}>{value}</div>
+    <div className="st-mono" style={{fontSize:9.5,color:C.muted,letterSpacing:.5,marginTop:2,textTransform:"uppercase"}}>{label}</div>
+  </div>);
+}
+
+const secBtn={flex:1,padding:"11px",borderRadius:10,border:`1px solid ${C.line}`,background:C.surface,color:C.text,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7,fontFamily:"'IBM Plex Sans',sans-serif"};
+
+// ── Setup Screen ──
+function Setup({onComplete}) {
+  const [target, setTarget] = useState(null);
+  const [native, setNative] = useState("English");
+  const [search, setSearch] = useState("");
+
+  const filtered = search ? LANGS.filter(l=>l.label.toLowerCase().includes(search.toLowerCase())) : LANGS;
+
+  return (
+    <div style={{minHeight:"100vh",color:C.text,background:`linear-gradient(180deg,${C.ink} 0%,${C.ink2} 100%)`,padding:"40px 20px",display:"flex",flexDirection:"column",alignItems:"center"}}>
+      <div style={{maxWidth:440,width:"100%"}}>
+        <div className="st-display" style={{fontSize:28,fontWeight:700,textAlign:"center",marginBottom:4}}>
+          Cuaderno<span style={{color:C.brass}}>.</span>
+        </div>
+        <div style={{textAlign:"center",color:C.muted,fontSize:14,marginBottom:32}}>Your personal vocabulary trainer</div>
+
+        <div style={{marginBottom:24}}>
+          <div className="st-mono" style={{fontSize:10,color:C.muted,letterSpacing:1,marginBottom:8}}>I SPEAK</div>
+          <input value={native} onChange={e=>setNative(e.target.value)} placeholder="English"
+            style={{width:"100%",boxSizing:"border-box",padding:"12px 14px",borderRadius:10,background:C.surface,border:`1px solid ${C.line}`,color:C.text,fontSize:16,outline:"none"}}/>
+        </div>
+
+        <div>
+          <div className="st-mono" style={{fontSize:10,color:C.muted,letterSpacing:1,marginBottom:8}}>I'M LEARNING</div>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search languages…" className="st-input"
+            style={{width:"100%",boxSizing:"border-box",padding:"12px 14px",borderRadius:10,background:C.surface,border:`1px solid ${C.line}`,color:C.text,fontSize:15,outline:"none",marginBottom:12}}/>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,maxHeight:320,overflow:"auto"}}>
+            {filtered.map(l=>(
+              <button key={l.code} onClick={()=>setTarget(l)}
+                style={{padding:"14px 12px",borderRadius:10,border:`1px solid ${target?.code===l.code?C.brass:C.line}`,
+                  background:target?.code===l.code?C.surface2:C.surface,cursor:"pointer",textAlign:"left",
+                  display:"flex",alignItems:"center",gap:10,transition:"all .15s"}}>
+                <span style={{fontSize:22}}>{l.flag}</span>
+                <span style={{fontSize:14,color:target?.code===l.code?C.text:C.muted,fontWeight:target?.code===l.code?600:400}}>{l.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <button onClick={()=>{if(target&&native.trim()) onComplete({...target,native:native.trim()});}}
+          disabled={!target||!native.trim()}
+          style={{width:"100%",marginTop:24,padding:"16px",borderRadius:12,border:"none",
+            background:target&&native.trim()?C.brass:C.surface2,color:target&&native.trim()?"#1a1408":C.muted,
+            fontSize:16,fontWeight:600,cursor:target?"pointer":"not-allowed",fontFamily:"'Space Grotesk',sans-serif"}}>
+          Start learning {target?.label||"…"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main App ──
+function App() {
+  const [lang, setLang] = useState(null); // {code,tts,label,flag,articles,native}
+  const [cards, setCards] = useState([]);
+  const [settings, setSettings] = useState({newPerDay:8});
+  const [stats, setStats] = useState({streak:0,lastStudied:null,answered:0,correct:0});
+  const [loaded, setLoaded] = useState(false);
+  const [view, setView] = useState("home");
+  const [queue, setQueue] = useState([]);
+  const [qi, setQi] = useState(0);
+  const [requeued, setRequeued] = useState({});
+  const [input, setInput] = useState("");
+  const [result, setResult] = useState(null);
+  const [hint, setHint] = useState(false);
+  const [session, setSession] = useState({answered:0,correct:0,promos:0});
+  const [importText, setImportText] = useState("");
+  const [importPreview, setImportPreview] = useState([]);
+  const [promptCopied, setPromptCopied] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(false);
+  const inputRef = useRef(null);
+  const today = todayStr();
+
+  useEffect(()=>{
+    const data = loadData();
+    if(data){
+      if(data.lang) setLang(data.lang);
+      setCards(data.cards||[]);
+      setSettings(data.settings||{newPerDay:8});
+      setStats(data.stats||{streak:0,lastStudied:null,answered:0,correct:0});
+    }
+    setLoaded(true);
+  },[]);
+
+  const persist = useCallback((nc,ns,nset,nl)=>{
+    saveData({lang:nl||lang,cards:nc||cards,stats:ns||stats,settings:nset||settings});
+  },[lang,cards,stats,settings]);
+
+  const handleSetup = (langConfig)=>{
+    setLang(langConfig);
+    saveData({lang:langConfig,cards:[],stats:{streak:0,lastStudied:null,answered:0,correct:0},settings:{newPerDay:8}});
+  };
+
+  const dist = useMemo(()=>{
+    const d={new:0,1:0,2:0,3:0,4:0,5:0,mastered:0};
+    cards.forEach(c=>{if(c.tier===0)d.new++;else if(c.tier>=MASTERED_TIER)d.mastered++;else d[c.tier]++;});
+    return d;
+  },[cards]);
+
+  const dueCount = useMemo(()=>cards.filter(c=>c.tier>=1&&c.due&&c.due<=today).length,[cards,today]);
+  const newAvail = useMemo(()=>cards.filter(c=>c.tier===0).length,[cards]);
+  const newToday = Math.min(settings.newPerDay, newAvail);
+  const masteredCount = dist.mastered;
+  const accuracy = stats.answered?Math.round((stats.correct/stats.answered)*100):0;
+
+  const startSession = ()=>{
+    const due=cards.filter(c=>c.tier>=1&&c.due&&c.due<=today).map(c=>c.id);
+    const news=cards.filter(c=>c.tier===0).slice(0,settings.newPerDay).map(c=>c.id);
+    const q=shuffle([...due,...news]);
+    if(!q.length) return;
+    setQueue(q);setQi(0);setRequeued({});setInput("");setResult(null);setHint(false);
+    setSession({answered:0,correct:0,promos:0});setView("drill");
+    setTimeout(()=>inputRef.current?.focus(),80);
+  };
+
+  const currentCard = useMemo(()=>{
+    if(view!=="drill"||qi>=queue.length) return null;
+    return cards.find(c=>c.id===queue[qi])||null;
+  },[view,qi,queue,cards]);
+
+  const submit = ()=>{
+    if(!currentCard||result) return;
+    const res=checkAnswer(currentCard,input,lang?.articles||[]);
+    const good=res.status==="correct"||res.status==="close";
+    const fromTier=currentCard.tier;let toTier=fromTier;let nc=cards;
+    if(good){toTier=Math.min((fromTier===0?1:fromTier+1),MASTERED_TIER);nc=cards.map(c=>c.id===currentCard.id?{...c,tier:toTier,due:addDays(today,INTERVALS[Math.min(toTier,6)]||90),reps:c.reps+1}:c);}
+    else{toTier=1;nc=cards.map(c=>c.id===currentCard.id?{...c,tier:1,due:addDays(today,1),lapses:c.lapses+1}:c);}
+    let ns={...stats,answered:stats.answered+1,correct:stats.correct+(good?1:0)};
+    if(stats.lastStudied!==today){const streak=stats.lastStudied===addDays(today,-1)?stats.streak+1:1;ns={...ns,streak,lastStudied:today};}
+    setCards(nc);setStats(ns);persist(nc,ns);
+    setSession(s=>({answered:s.answered+1,correct:s.correct+(good?1:0),promos:s.promos+(good&&toTier>fromTier?1:0)}));
+    setResult({status:res.status,card:currentCard,fromTier,toTier,good});
+    if(!good&&!requeued[currentCard.id]){setRequeued(r=>({...r,[currentCard.id]:true}));setQueue(q=>[...q,currentCard.id]);}
+    speak(currentCard.es, lang?.tts||"es");
+  };
+
+  const next = ()=>{setResult(null);setInput("");setHint(false);if(qi+1>=queue.length)setView("done");else{setQi(qi+1);setTimeout(()=>inputRef.current?.focus(),60);}};
+  const onKey = e=>{if(e.key==="Enter"){e.preventDefault();if(result)next();else submit();}};
+
+  const handleImportChange = text=>{setImportText(text);setImportPreview(text.trim()?parseImport(text):[]);};
+  const confirmImport = ()=>{if(!importPreview.length)return;const nc=[...cards,...importPreview];setCards(nc);persist(nc);setImportText("");setImportPreview([]);};
+  const copyPrompt = ()=>{if(!lang)return;navigator.clipboard?.writeText(buildPrompt(lang)).then(()=>{setPromptCopied(true);setTimeout(()=>setPromptCopied(false),2000);}).catch(()=>{});};
+
+  const resetAll = ()=>{
+    setCards([]);setStats({streak:0,lastStudied:null,answered:0,correct:0});setSettings({newPerDay:8});setView("home");
+    saveData({lang,cards:[],stats:{streak:0,lastStudied:null,answered:0,correct:0},settings:{newPerDay:8}});
+  };
+
+  const changeLang = ()=>{setLang(null);localStorage.removeItem(STORE_KEY);};
+
+  const tierLabel = t=>t===0?"New":t>=MASTERED_TIER?"Mastered":["","I","II","III","IV","V"][t];
+
+  if(!loaded) return(<div style={{minHeight:"100vh",background:C.ink,color:C.muted,display:"flex",alignItems:"center",justifyContent:"center"}}><span className="st-mono" style={{fontSize:13,letterSpacing:1}}>loading…</span></div>);
+  if(!lang) return <Setup onComplete={handleSetup}/>;
+
+  const hasCards = cards.length > 0;
+
+  return(
+    <div style={{minHeight:"100vh",color:C.text,background:`linear-gradient(180deg,${C.ink} 0%,${C.ink2} 100%)`,padding:"20px 16px 32px"}}>
+      <div style={{maxWidth:460,margin:"0 auto"}}>
+
+        {/* Header */}
+        <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:4}}>
+          <div className="st-display" style={{fontSize:22,fontWeight:700,letterSpacing:-.4}}>
+            Cuaderno<span style={{color:C.brass}}>.</span>
+          </div>
+          <div className="st-mono" style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:stats.streak?C.brass:C.muted}}>
+            <IFlame size={13} color={stats.streak?C.brass:C.muted}/>{stats.streak} {stats.streak===1?"day":"days"}
+          </div>
+        </div>
+        <div className="st-mono" style={{fontSize:11,color:C.muted,letterSpacing:.5,marginBottom:18}}>
+          {lang.flag} {lang.label.toUpperCase()} · {cards.length} words · {accuracy}% accuracy
+        </div>
+
+        {/* ──── HOME ──── */}
+        {view==="home"&&(
+          <div className="st-rise">
+            {!hasCards ? (
+              /* Empty state — first time */
+              <div style={{textAlign:"center",padding:"40px 0"}}>
+                <div style={{fontSize:48,marginBottom:16}}>{lang.flag}</div>
+                <div className="st-display" style={{fontSize:22,fontWeight:700,marginBottom:8}}>Ready to learn {lang.label}</div>
+                <div style={{fontSize:14,color:C.muted,lineHeight:1.6,marginBottom:24,maxWidth:320,margin:"0 auto 24px"}}>
+                  Your deck is empty. Add your first words to start training — use AI to generate them in one click, or paste your own.
+                </div>
+                <button onClick={()=>setView("add")} style={{padding:"16px 32px",borderRadius:12,border:"none",background:C.brass,color:"#1a1408",fontSize:16,fontWeight:600,cursor:"pointer",fontFamily:"'Space Grotesk',sans-serif",display:"inline-flex",alignItems:"center",gap:8}}>
+                  <IPlus size={18} color="#1a1408"/> Add your first words
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* Rank ladder */}
+                <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:14,background:C.surface,marginBottom:16}}>
+                  <div className="st-mono" style={{fontSize:10,color:C.muted,letterSpacing:1,marginBottom:10}}>RANK LADDER</div>
+                  <div style={{display:"flex",gap:4,alignItems:"flex-end",height:64}}>
+                    {LADDER.map(t=>{
+                      const v=dist[t.key];const max=Math.max(1,...Object.values(dist));
+                      const h=10+Math.round((v/max)*44);
+                      const col=t.key==="mastered"?C.brass:t.key==="new"?C.line:C.steel;
+                      return(<div key={t.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                        <div className="st-mono" style={{fontSize:11,color:v?C.text:C.muted}}>{v}</div>
+                        <div style={{width:"100%",height:h,background:col,opacity:v?1:.35,borderRadius:3}}/>
+                        <div className="st-mono" style={{fontSize:9,color:C.muted}}>{t.label}</div>
+                      </div>);
+                    })}
+                  </div>
+                </div>
+
+                <div style={{display:"flex",gap:10,marginBottom:16}}>
+                  <Stat label="Due" value={dueCount} accent={C.steel}/>
+                  <Stat label="New today" value={newToday} accent={C.brass}/>
+                  <Stat label="Mastered" value={masteredCount} accent={C.sage}/>
+                </div>
+
+                <button onClick={startSession} disabled={dueCount+newToday===0}
+                  style={{width:"100%",padding:"16px",borderRadius:12,border:"none",cursor:dueCount+newToday?"pointer":"not-allowed",
+                    background:dueCount+newToday?C.brass:C.surface2,color:dueCount+newToday?"#1a1408":C.muted,
+                    fontSize:16,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",gap:8,fontFamily:"'Space Grotesk',sans-serif"}}>
+                  {dueCount+newToday?<><span>Start training</span><IChevR size={18} color="#1a1408"/></>:"All reviewed for today ✓"}
+                </button>
+
+                <div style={{display:"flex",gap:10,marginTop:12}}>
+                  <button onClick={()=>setView("add")} style={secBtn}><IPlus size={15} color={C.text}/> Add words</button>
+                  <button onClick={()=>{const np=settings.newPerDay===8?12:settings.newPerDay===12?4:8;const ns={...settings,newPerDay:np};setSettings(ns);persist(null,null,ns);}} style={secBtn}>
+                    <span className="st-mono" style={{fontSize:12}}>New/day: {settings.newPerDay}</span>
+                  </button>
+                </div>
+              </>
+            )}
+
+            <div style={{display:"flex",gap:10,marginTop:12}}>
+              <button onClick={changeLang} style={{...secBtn,color:C.muted,borderColor:"transparent"}}><IGlobe size={13} color={C.muted}/><span style={{fontSize:12}}>Change language</span></button>
+              {hasCards && <button onClick={resetAll} style={{...secBtn,color:C.muted,borderColor:"transparent"}}><IReset size={13} color={C.muted}/><span style={{fontSize:12}}>Reset progress</span></button>}
+            </div>
+          </div>
+        )}
+
+        {/* ──── DRILL ──── */}
+        {view==="drill"&&currentCard&&(
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+              <button onClick={()=>setView("home")} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",padding:0,display:"flex"}}><IArrowLeft size={18} color={C.muted}/></button>
+              <div style={{flex:1,height:4,background:C.surface2,borderRadius:99,overflow:"hidden"}}><div style={{height:"100%",width:`${(qi/queue.length)*100}%`,background:C.brass,transition:"width .25s"}}/></div>
+              <div className="st-mono" style={{fontSize:11,color:C.muted}}>{qi+1}/{queue.length}</div>
+            </div>
+            <div key={currentCard.id+qi} className="st-rise" style={{border:`1px solid ${C.line}`,borderRadius:14,padding:20,background:C.surface,minHeight:220}}>
+              <div className="st-mono" style={{fontSize:10,color:C.muted,letterSpacing:1,marginBottom:12,display:"flex",justifyContent:"space-between"}}>
+                <span>{currentCard.tier===0?"NEW WORD":`RANK ${tierLabel(currentCard.tier)}`}</span>
+                <span>TYPE IN {lang.label.toUpperCase()}</span>
+              </div>
+              <div className="st-display" style={{fontSize:30,fontWeight:700,lineHeight:1.1,marginBottom:8}}>{currentCard.en}</div>
+              {currentCard.ex_en&&!result&&<div style={{fontSize:13,color:C.muted,fontStyle:"italic",marginBottom:16}}>"{currentCard.ex_en}"</div>}
+              {!result&&(
+                <>
+                  <input ref={inputRef} className="st-input st-mono" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={onKey}
+                    placeholder="your answer…" autoCapitalize="none" autoCorrect="off" spellCheck={false} inputMode="text"
+                    style={{width:"100%",boxSizing:"border-box",marginTop:8,padding:"13px 14px",borderRadius:10,background:C.ink,border:`1px solid ${C.line}`,color:C.text,fontSize:17,outline:"none"}}/>
+                  {hint&&<div className="st-mono" style={{fontSize:13,color:C.brass,marginTop:10}}>Hint: {currentCard.es.split("").map((ch,i)=>(i<2||ch===" "?ch:"·")).join("")}</div>}
+                  <div style={{display:"flex",gap:10,marginTop:14}}>
+                    <button onClick={submit} style={{flex:1,padding:"12px",borderRadius:10,border:"none",background:C.brass,color:"#1a1408",fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"'Space Grotesk',sans-serif"}}>Check</button>
+                    <button onClick={()=>setHint(true)} style={{...secBtn,flex:"0 0 auto",width:48,justifyContent:"center"}}><IBulb size={16} color={C.text}/></button>
+                  </div>
+                </>
+              )}
+              {result&&(
+                <div className="st-pop">
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginTop:4,marginBottom:12}}>
+                    {result.good?(
+                      <span style={{display:"flex",alignItems:"center",gap:7,color:result.status==="close"?C.brass:C.sage,fontWeight:600}}>
+                        <ICheck size={18} color={result.status==="close"?C.brass:C.sage}/> {result.status==="close"?"Close — watch the accents/articles":"Correct"}
+                      </span>
+                    ):(
+                      <span style={{display:"flex",alignItems:"center",gap:7,color:C.clay,fontWeight:600}}><IX size={18} color={C.clay}/> Review tomorrow</span>
+                    )}
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+                    <div className="st-display" style={{fontSize:26,fontWeight:700,color:C.text}}>{result.card.es}</div>
+                    <button onClick={()=>speak(result.card.es,lang?.tts||"es")} style={{background:"none",border:`1px solid ${C.line}`,borderRadius:8,padding:6,cursor:"pointer",display:"flex"}}><IVol size={16} color={C.steel}/></button>
+                  </div>
+                  {result.card.ex_es&&<div style={{fontSize:14,color:C.muted,marginBottom:4}}>{result.card.ex_es}</div>}
+                  {result.card.ex_en&&<div style={{fontSize:13,color:C.muted,fontStyle:"italic",marginBottom:12}}>{result.card.ex_en}</div>}
+                  {result.good&&result.toTier>result.fromTier&&(
+                    <div className="st-mono" style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,color:result.toTier>=MASTERED_TIER?C.brass:C.steel,border:`1px solid ${C.line}`,borderRadius:99,padding:"4px 10px",marginBottom:14}}>
+                      <IArrowUp size={13} color={result.toTier>=MASTERED_TIER?C.brass:C.steel}/> {result.toTier>=MASTERED_TIER?"MASTERED":`PROMOTED TO RANK ${tierLabel(result.toTier)}`}
+                    </div>
+                  )}
+                  <button onClick={next} style={{width:"100%",padding:"13px",borderRadius:10,border:"none",background:C.surface2,color:C.text,fontWeight:600,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,fontFamily:"'Space Grotesk',sans-serif"}}>
+                    {qi+1>=queue.length?"Finish":"Next"} <IChevR size={17} color={C.text}/>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ──── DONE ──── */}
+        {view==="done"&&(
+          <div className="st-rise" style={{textAlign:"center",paddingTop:24}}>
+            <div className="st-display" style={{fontSize:26,fontWeight:700,marginBottom:6}}>Session complete</div>
+            <div className="st-mono" style={{fontSize:12,color:C.muted,marginBottom:24}}>nice work</div>
+            <div style={{display:"flex",gap:10,marginBottom:24}}>
+              <Stat label="Answered" value={session.answered} accent={C.steel}/>
+              <Stat label="Accuracy" value={`${session.answered?Math.round((session.correct/session.answered)*100):0}%`} accent={C.sage}/>
+              <Stat label="Promoted" value={session.promos} accent={C.brass}/>
+            </div>
+            <button onClick={()=>setView("home")} style={{width:"100%",padding:"14px",borderRadius:12,border:"none",background:C.brass,color:"#1a1408",fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"'Space Grotesk',sans-serif"}}>Back to home</button>
+          </div>
+        )}
+
+        {/* ──── ADD ──── */}
+        {view==="add"&&(
+          <div className="st-rise">
+            <button onClick={()=>{setView("home");setImportText("");setImportPreview([]);}} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:6,marginBottom:16}}>
+              <IArrowLeft size={18} color={C.muted}/> <span style={{fontSize:14}}>Back</span>
+            </button>
+            <div className="st-display" style={{fontSize:20,fontWeight:700,marginBottom:12}}>Add Words</div>
+
+            {/* Step 1 */}
+            <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:14,background:C.surface,marginBottom:16}}>
+              <div className="st-mono" style={{fontSize:10,color:C.brass,letterSpacing:1,marginBottom:8}}>STEP 1 · GET CARDS FROM AI</div>
+              <div style={{fontSize:13,color:C.muted,lineHeight:1.6,marginBottom:12}}>
+                Copy this prompt into <strong style={{color:C.text}}>Claude</strong>, <strong style={{color:C.text}}>ChatGPT</strong>, or any AI. Change <strong style={{color:C.brass}}>[YOUR TOPIC]</strong> to whatever you want. It'll output cards ready to paste below.
+              </div>
+              <button onClick={()=>setShowPrompt(!showPrompt)} style={{...secBtn,width:"100%",marginBottom:showPrompt?10:0,justifyContent:"center",color:C.brass,borderColor:C.brass+"55"}}>
+                {showPrompt?"Hide prompt":"Show the prompt"}
+              </button>
+              {showPrompt&&(
+                <div>
+                  <pre className="st-mono" style={{fontSize:11,color:C.text,background:C.ink,border:`1px solid ${C.line}`,borderRadius:8,padding:12,whiteSpace:"pre-wrap",wordBreak:"break-word",lineHeight:1.6,maxHeight:240,overflow:"auto",marginBottom:8}}>
+                    {buildPrompt(lang)}
+                  </pre>
+                  <button onClick={copyPrompt} style={{...secBtn,width:"100%",justifyContent:"center",color:promptCopied?C.sage:C.text,borderColor:promptCopied?C.sage:C.line}}>
+                    {promptCopied?<><ICheck size={15} color={C.sage}/> Copied!</>:<><ICopy size={15} color={C.text}/> Copy prompt</>}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Step 2 */}
+            <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:14,background:C.surface,marginBottom:16}}>
+              <div className="st-mono" style={{fontSize:10,color:C.brass,letterSpacing:1,marginBottom:8}}>STEP 2 · PASTE THE RESULT</div>
+              <div style={{fontSize:13,color:C.muted,lineHeight:1.6,marginBottom:10}}>
+                One card per line: <span className="st-mono" style={{color:C.text,fontSize:12}}>{lang.native} | {lang.label} | example | translation</span> (last two optional)
+              </div>
+              <textarea value={importText} onChange={e=>handleImportChange(e.target.value)}
+                placeholder={`your word | target word | example sentence | translation\nanother word | otra palabra`}
+                rows={5} className="st-input st-mono"
+                style={{width:"100%",boxSizing:"border-box",padding:"12px 13px",borderRadius:10,background:C.ink,border:`1px solid ${C.line}`,color:C.text,fontSize:13,outline:"none",resize:"vertical",lineHeight:1.6}}/>
+              {importPreview.length>0&&(
+                <div style={{marginTop:12}}>
+                  <div className="st-mono" style={{fontSize:10,color:C.muted,letterSpacing:.5,marginBottom:8}}>PREVIEW · {importPreview.length} card{importPreview.length!==1?"s":""}</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:200,overflow:"auto"}}>
+                    {importPreview.map((c,i)=>(
+                      <div key={i} style={{display:"flex",alignItems:"baseline",gap:8,padding:"8px 10px",borderRadius:8,background:C.ink,border:`1px solid ${C.line}`}}>
+                        <span className="st-mono" style={{fontSize:13,color:C.text}}>{c.es}</span>
+                        <span style={{fontSize:12,color:C.muted}}>— {c.en}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={confirmImport} style={{width:"100%",marginTop:12,padding:"14px",borderRadius:12,border:"none",background:C.sage,color:"#1a1408",fontWeight:600,fontSize:15,cursor:"pointer",fontFamily:"'Space Grotesk',sans-serif"}}>
+                    <span style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8}}><IUpload size={16} color="#1a1408"/> Add {importPreview.length} to deck</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <details style={{marginTop:4}}>
+              <summary className="st-mono" style={{fontSize:11,color:C.muted,cursor:"pointer",letterSpacing:.5}}>OR ADD ONE MANUALLY</summary>
+              <ManualAdd cards={cards} setCards={setCards} persist={persist}/>
+            </details>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+function ManualAdd({cards,setCards,persist}){
+  const[en,setEn]=useState("");const[es,setEs]=useState("");
+  const add=()=>{if(!en.trim()||!es.trim())return;const card={id:`m${Date.now()}`,en:en.trim(),es:es.trim(),accept:[],ex_es:"",ex_en:"",tier:0,due:null,reps:0,lapses:0};const nc=[...cards,card];setCards(nc);persist(nc);setEn("");setEs("");};
+  return(<div style={{marginTop:12,display:"flex",flexDirection:"column",gap:8}}>
+    <input value={en} onChange={e=>setEn(e.target.value)} placeholder="Your language" style={{width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:8,background:C.ink,border:`1px solid ${C.line}`,color:C.text,fontSize:14,outline:"none"}}/>
+    <input value={es} onChange={e=>setEs(e.target.value)} placeholder="Target language" className="st-mono" style={{width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:8,background:C.ink,border:`1px solid ${C.line}`,color:C.text,fontSize:14,outline:"none"}}/>
+    <button onClick={add} disabled={!en.trim()||!es.trim()} style={{padding:"11px",borderRadius:10,border:"none",background:en.trim()&&es.trim()?C.brass:C.surface2,color:en.trim()&&es.trim()?"#1a1408":C.muted,fontWeight:600,fontSize:14,cursor:"pointer",fontFamily:"'Space Grotesk',sans-serif"}}>Add</button>
+  </div>);
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{});}</script>
+</body>
+</html>
